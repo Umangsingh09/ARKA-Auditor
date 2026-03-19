@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Body
-from backend.llm_engine.test_llm import process_vulnerabilities
+from backend.llm_engine.fix_engine import process_vulnerabilities
 
 app = FastAPI()
 
