@@ -34,7 +34,7 @@ function Dashboard() {
 
         <div className="lg:col-span-1 bg-[#0f172a]/80 border border-slate-700 rounded-3xl p-5 shadow-[0_16px_30px_-10px_rgba(0,0,0,0.5)] backdrop-blur">
           <h1 className="text-2xl font-bold mb-4">AI Security Auditor</h1>
-          <p className="text-slate-300 text-sm mb-4">You’re scanning: <span className="text-indigo-300">demo-repo</span></p>
+          <p className="text-slate-300 text-sm mb-4">You're scanning: <span className="text-indigo-300">demo-repo</span></p>
           <p className="text-slate-300 text-sm">Next steps:</p>
           <ul className="mt-3 space-y-2 text-slate-300 text-sm">
             <li>• Review security score</li>
