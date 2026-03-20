@@ -33,20 +33,12 @@ function Results() {
 
         <div className="grid gap-4 md:grid-cols-2">
           {data.map((item, i) => (
-            <div key={i} className="bg-[#0f1730]/80 border border-slate-700 rounded-2xl p-5">
-              <div className="flex items-center justify-between mb-3">
-                <h2 className="text-xl font-semibold">{item.title}</h2>
-                <span className={`px-3 py-1 text-xs rounded-full ${item.severity === "High" ? "bg-red-500/20 text-red-300" : "bg-amber-500/20 text-amber-300"}`}>
-                  {item.severity}
-                </span>
-              </div>
-              <p className="text-slate-300 mb-3">{item.description}</p>
-              <p className="text-sm text-slate-400 mb-4">Risk: {item.risk}</p>
-              <div className="flex gap-2">
-                <button className="flex-1 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 transition">View Issue</button>
-                <button className="flex-1 py-2 rounded-lg bg-green-600 hover:bg-green-500 transition">View PR</button>
-              </div>
-            </div>
+            <VulnerabilityCard
+              key={i}
+              title={item.title}
+              severity={item.severity}
+              description={item.description}
+            />
           ))}
         </div>
       </div>
