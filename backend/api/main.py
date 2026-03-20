@@ -1,6 +1,6 @@
 from fastapi import FastAPI, Body, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from backend.llm_engine.fix_engine import generate_fix
+from backend.llm_engine.fix_engine import generate_fix, process_vulnerabilities
 from backend.scanner.bandit_scanner import run_bandit_scan
 from backend.scanner.zap_scanner import run_zap_scan
 
