@@ -1,12 +1,14 @@
-import os
+﻿import os
 import json
+import logging
 from openai import OpenAI
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+logger = logging.getLogger(__name__)
 
 def generate_fix(vuln):
     prompt = f"""
-You are a security expert. Analyze this vulnerability and provide a fix.
+You are a security expert. Provide a concise fix for the vulnerability below.
 
 Vulnerability details:
 - Type: {vuln.get('type', 'Unknown')}
@@ -14,18 +16,19 @@ Vulnerability details:
 - Severity: {vuln.get('severity', 'Unknown')}
 - Code: {vuln.get('code', 'No code provided')}
 
-Generate a JSON response with exactly these fields:
+Return only valid JSON with these fields:
 {{
-  "type": "{vuln.get('type', 'Unknown')}",
-  "severity": "{vuln.get('severity', 'Unknown')}",
-  "fix": "Brief description of the fix",
-  "fixed_code": "The corrected code snippet",
-  "explanation": "Why this fix works",
-  "confidence": "90%"
+  "type": "...",
+  "severity": "...",
+  "fix": "...",
+  "fixed_code": "...",
+  "explanation": "...",
+  "confidence": "..."
 }}
 
-Ensure the response is valid JSON only.
-"""
+Use short and accurate output (max 150 words explanation)."""
+
+    logger.info("generate_fix for %s", vuln.get('type'))
 
     try:
         response = client.chat.completions.create(
@@ -34,21 +37,37 @@ Ensure the response is valid JSON only.
             max_tokens=500,
             temperature=0.2
         )
+
         content = response.choices[0].message.content.strip()
-        # Remove markdown if present
         if content.startswith("```json"):
             content = content[7:]
         if content.endswith("```"):
             content = content[:-3]
+        content = content.strip()
+
         result = json.loads(content)
-        return result
-    except Exception as e:
+
+        # Enforce keys and safe defaults
         return {
-            "error": f"LLM failed: {str(e)}"
+            "type": result.get("type", vuln.get("type", "Unknown")),
+            "severity": result.get("severity", vuln.get("severity", "Medium")),
+            "fix": result.get("fix", "No fix statement returned"),
+            "fixed_code": result.get("fixed_code", "N/A"),
+            "explanation": result.get("explanation", "No explanation returned"),
+            "confidence": result.get("confidence", "50%")
+        }
+    except Exception as e:
+        logger.exception("LLM generation failed")
+        return {
+            "type": vuln.get("type", "Unknown"),
+            "severity": vuln.get("severity", "Medium"),
+            "fix": "LLM response unavailable; please review manually",
+            "fixed_code": "N/A",
+            "explanation": f"LLM fallback: {str(e)}",
+            "confidence": "0%",
+            "error": str(e)
         }
 
+
 def process_vulnerabilities(vulns):
-    results = []
-    for v in vulns:
-        results.append(generate_fix(v))
-    return results
+    return [generate_fix(v) for v in vulns]
