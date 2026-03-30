@@ -2,6 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Optional default styling */
 body {
   margin: 0;
   font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
