@@ -12,37 +12,233 @@ export default function Dashboard({ user }) {
   const [status, setStatus] = useState('Ready to scan');
   const [error, setError] = useState(null);
 
-  // Load existing scan if any
-  useEffect(() => {
-    const savedScanId = localStorage.getItem('arka_scan_id');
-    if (savedScanId) {
-      setScanId(savedScanId);
-      checkScanStatus(savedScanId);
+  const [url, setUrl] = useState("");
+  const [scanResult, setScanResult] = useState("");
+
+  const [repos, setRepos] = useState([]);
+  const [selectedRepo, setSelectedRepo] = useState("");
+
+  const [loading, setLoading] = useState(false);
+  const [analysisResult, setAnalysisResult] = useState(null);
+
+  // 🔹 AI Fix Generator
+  const handleGenerateFix = async () => {
+    if (!vulnerability) {
+      alert("Please enter a vulnerability first");
+      return;
     }
-  }, []);
 
-  const checkScanStatus = async (id) => {
+    if (!selectedRepo) {
+      alert("Please select a repository first");
+      return;
+    }
+
     try {
-      const response = await axios.get(`http://localhost:8000/scan/status/${id}`);
-      const data = response.data;
+      setLoading(true);
+      console.log("🤖 GENERATE FIX: Starting fix generation for:", vulnerability);
 
-      setProgress(data.progress || 0);
-      setStatus(data.status || 'unknown');
+      const repoUrl = `https://github.com/${selectedRepo}`;
 
-      if (data.status === 'complete') {
-        setScanning(false);
-        navigate(`/results/${id}`);
-      } else if (data.status === 'error') {
-        setScanning(false);
-        setError(data.error || 'Scan failed');
-      } else if (data.status !== 'error') {
-        // Continue polling
-        setTimeout(() => checkScanStatus(id), 2000);
+      const response = await fetch("http://127.0.0.1:5000/generate-fix", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          repo_url: repoUrl,
+          vulnerability: vulnerability
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Server error: ${response.status}`);
       }
-    } catch (err) {
-      console.error('Status check failed:', err);
-      setError('Failed to check scan status');
-      setScanning(false);
+
+      const data = await response.json();
+      console.log("✅ GENERATE FIX: Fix generated successfully:", data);
+
+      setFix(data.fix);
+      alert("Fix generated successfully! 🤖");
+
+    } catch (error) {
+      console.error("❌ GENERATE FIX: Error generating fix:", error);
+
+      // Handle network errors
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        alert("Cannot connect to backend server. Please make sure the Flask server is running on http://127.0.0.1:5000");
+      } else {
+        alert(`Error generating fix: ${error.message}`);
+      }
+
+      setFix("Error generating fix");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 🔹 Website Scanner
+  const handleScanWebsite = async () => {
+    if (!url) return alert("Enter website URL");
+
+    try {
+      setLoading(true);
+      const response = await API.post('/api/scan', { url });
+      setScanResult(response.data.result);
+    } catch (error) {
+      console.error(error);
+
+      // Handle network errors
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        alert("Cannot connect to backend server. Please make sure the Flask server is running on http://127.0.0.1:5000");
+      } else {
+        alert(`Error scanning website: ${error.message}`);
+      }
+
+      setScanResult("Error scanning website");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 🔹 Fetch GitHub Repos
+  const fetchRepos = async () => {
+    try {
+      const token = localStorage.getItem("github_token");
+
+      if (!token) {
+        alert("GitHub token not found. Please login again.");
+        return;
+      }
+
+      const res = await fetch("https://api.github.com/user/repos", {
+        headers: {
+          Authorization: `token ${token}`,
+        },
+      });
+
+      const data = await res.json();
+      setRepos(data);
+    } catch (error) {
+      console.error("Error fetching repos:", error);
+    }
+  };
+
+  // 🔥 ANALYZE REPO (FINAL FIX)
+  const handleAnalyzeRepo = async () => {
+    if (!selectedRepo) {
+      alert("Select a repo first");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const token = localStorage.getItem("github_token");
+      const repoUrl = `https://github.com/${selectedRepo}`;
+
+      console.log("🔍 Analyzing repo:", repoUrl);
+
+      const response = await fetch("http://127.0.0.1:5000/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          repo_url: repoUrl,
+          token: token || ""
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Server error: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      console.log("✅ Analysis successful:", data);
+
+      // Store analysis result in state
+      setAnalysisResult(data);
+
+      // Also set first issue as vulnerability for fix generation
+      if (data.issues && data.issues.length > 0) {
+        setVulnerability(data.issues[0]);
+      }
+
+      alert(data.message || `Analysis complete! Found ${data.issues?.length || 0} potential issues.`);
+
+    } catch (error) {
+      console.error("❌ Analysis error:", error);
+
+      // Handle network errors
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        alert("Cannot connect to backend server. Please make sure the Flask server is running on http://127.0.0.1:5000");
+      } else {
+        alert(`Error analyzing repo: ${error.message}`);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 🔹 CREATE PR
+  const handleCreatePR = async () => {
+    if (!selectedRepo) {
+      alert("Please select a repository first");
+      return;
+    }
+
+    if (!fix) {
+      alert("Please generate a fix first");
+      return;
+    }
+
+    try {
+      setLoading(true);
+
+      const token = localStorage.getItem("github_token");
+      const repoUrl = `https://github.com/${selectedRepo}`;
+
+      console.log("🚀 Creating PR for:", repoUrl);
+
+      const response = await fetch("http://127.0.0.1:5000/create-pr", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          repo_url: repoUrl,
+          token: token,
+          fix: fix
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Server error: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      console.log("✅ PR created:", data.pr_url);
+      alert(`PR Created Successfully! 🚀\n${data.pr_url}\n\nFiles modified: ${data.files_modified || 'N/A'}\nIssues fixed: ${data.issues_fixed || 'N/A'}`);
+
+      // Open PR in new tab
+      window.open(data.pr_url, '_blank');
+
+    } catch (error) {
+      console.error("❌ PR creation error:", error);
+
+      // Handle network errors
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        alert("Cannot connect to backend server. Please make sure the Flask server is running on http://127.0.0.1:5000");
+      } else {
+        alert(`Error creating PR: ${error.message}`);
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -97,97 +293,138 @@ export default function Dashboard({ user }) {
   const statusSteps = getStatusStep(status);
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-white mb-2">Security Dashboard</h1>
-        <p className="text-slate-400">Scan your repository for vulnerabilities</p>
-      </div>
+    <div className="p-6 bg-gray-100 min-h-screen">
 
-      {/* Scan Input Form */}
-      <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 mb-6">
-        <div className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              GitHub Repository URL
-            </label>
-            <input
-              type="url"
-              value={repoUrl}
-              onChange={(e) => setRepoUrl(e.target.value)}
-              placeholder="https://github.com/user/repo"
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
-              disabled={scanning}
-            />
-          </div>
+      <h1 className="text-3xl font-bold text-center mb-6">
+        🚀 AI Security Dashboard
+      </h1>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-2">
-              Target URL (for live scanning)
-            </label>
-            <input
-              type="url"
-              value={targetUrl}
-              onChange={(e) => setTargetUrl(e.target.value)}
-              placeholder="http://localhost:80"
-              className="w-full bg-slate-700 border border-slate-600 rounded-lg px-4 py-3 text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none"
-              disabled={scanning}
-            />
-          </div>
+      {/* 🌐 WEBSITE SCANNER */}
+      <div className="bg-white p-4 rounded-xl shadow mb-6">
+        <h2 className="text-lg font-semibold mb-2">🌐 Scan Website</h2>
 
-          <button
-            onClick={startScan}
-            disabled={scanning}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 text-white py-4 rounded-xl font-semibold text-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-3"
-          >
-            🚀 Start Security Scan
-          </button>
-        </div>
-      </div>
+        <input
+          type="text"
+          placeholder="Enter website URL"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          className="w-full p-2 border rounded mb-3"
+        />
 
-      {/* Scan Progress */}
-      {scanning && (
-        <div className="bg-slate-800 border border-slate-700 rounded-xl p-6 mb-6">
-          <div className="text-center mb-6">
-            <h2 className="text-xl font-semibold text-white mb-2">
-              {status.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase())}
-            </h2>
-            <div className="w-full bg-slate-700 rounded-full h-3 mb-2">
+        <button
+          onClick={handleScanWebsite}
+          className="px-4 py-2 bg-green-600 text-white rounded w-full"
+        >
+          {loading ? "Scanning..." : "Scan Website 🔍"}
+        </button>
+
+        {/* Fetch repos */}
+        <button
+          onClick={fetchRepos}
+          className="px-4 py-2 bg-black text-white rounded w-full mt-3"
+        >
+          Fetch GitHub Repos 📂
+        </button>
+
+        {/* Repo list */}
+        <div className="mt-3 text-sm">
+          {repos.length > 0 ? (
+            repos.map((repo) => (
               <div
-                className="bg-indigo-500 h-3 rounded-full transition-all duration-500"
-                style={{ width: `${progress}%` }}
-              ></div>
-            </div>
-            <p className="text-indigo-400 font-mono text-2xl">{progress}%</p>
-          </div>
-
-          {/* Status Steps */}
-          <div className="flex justify-between items-center">
-            {statusSteps.map((step, index) => (
-              <div key={step.key} className="flex flex-col items-center">
-                <div className={`w-3 h-3 rounded-full mb-2 ${
-                  step.done ? 'bg-green-500' :
-                  step.active ? 'bg-indigo-500 animate-pulse' :
-                  'bg-slate-600'
-                }`}></div>
-                <span className={`text-xs text-center ${
-                  step.done ? 'text-green-400' :
-                  step.active ? 'text-indigo-400' :
-                  'text-slate-600'
-                }`}>
-                  {step.label}
-                </span>
+                key={repo.id}
+                onClick={() => setSelectedRepo(repo.full_name)}
+                className={`border p-2 mb-1 rounded cursor-pointer ${
+                  selectedRepo === repo.full_name ? "bg-green-200" : ""
+                }`}
+              >
+                {repo.name}
               </div>
-            ))}
-          </div>
+            ))
+          ) : (
+            "No repos fetched yet..."
+          )}
         </div>
-      )}
 
-      {/* Error Display */}
-      {error && (
-        <div className="bg-red-900/30 border border-red-700 rounded-xl p-4">
-          <p className="text-red-400">Error: {error}</p>
-        </div>
-      )}
+        {selectedRepo && (
+          <p className="mt-2 text-green-600">
+            Selected Repo: {selectedRepo}
+          </p>
+        )}
+
+        <pre className="mt-3 text-sm">{scanResult}</pre>
+      </div>
+
+      {/* 🔥 ANALYZE BUTTON */}
+      <button
+        onClick={handleAnalyzeRepo}
+        className="px-4 py-2 bg-yellow-500 text-white rounded w-full mb-3"
+      >
+        {loading ? "Analyzing..." : "Analyze Repo 🤖"}
+      </button>
+
+      {/* 🤖 GENERATE FIX */}
+      <div className="bg-white p-4 rounded-xl shadow mb-4">
+        <h2 className="text-lg font-semibold mb-2">🤖 Generate Fix</h2>
+
+        <input
+          type="text"
+          placeholder="Enter vulnerability"
+          value={vulnerability}
+          onChange={(e) => setVulnerability(e.target.value)}
+          className="w-full p-2 border rounded mb-3"
+        />
+
+        <button
+          onClick={handleGenerateFix}
+          className="px-4 py-2 bg-blue-600 text-white rounded w-full"
+        >
+          Generate Fix 🤖
+        </button>
+      </div>
+
+      {/* CREATE PR */}
+      <button
+        onClick={handleCreatePR}
+        className="px-4 py-2 bg-purple-600 text-white rounded w-full mb-4"
+      >
+        Create PR 🚀
+      </button>
+
+      {/* OUTPUT */}
+      <div className="bg-white p-4 rounded-xl shadow">
+        <h2 className="text-lg font-semibold mb-2">Result:</h2>
+
+        {analysisResult ? (
+          <div className="space-y-3">
+            <div className="bg-blue-50 border border-blue-200 rounded p-3">
+              <p className="text-blue-800 font-medium">{analysisResult.message}</p>
+            </div>
+
+            <div className="bg-gray-900 text-green-400 p-3 rounded text-sm">
+              <h3 className="text-white font-semibold mb-2">Security Issues Found:</h3>
+              {analysisResult.issues && analysisResult.issues.length > 0 ? (
+                <ul className="space-y-1">
+                  {analysisResult.issues.map((issue, index) => (
+                    <li key={index} className="flex items-start">
+                      <span className="text-red-400 mr-2">⚠️</span>
+                      <span>{issue}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-green-400">No security issues found! 🎉</p>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="bg-gray-900 text-green-400 p-3 rounded text-sm">
+            {fix || "No data yet... Run analysis to see results."}
+          </div>
+        )}
+      </div>
+
     </div>
   );
 }
+
+export default Dashboard;
