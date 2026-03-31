@@ -8,4 +8,5 @@ def generate_fix(vulnerability):
     cursor.execute("SELECT * FROM users WHERE id = ?", (user_id,))
     """
 
-print(generate_fix("SQL Injection in login.py"))
+if __name__ == "__main__":
+    print(generate_fix("SQL Injection in login.py"))
