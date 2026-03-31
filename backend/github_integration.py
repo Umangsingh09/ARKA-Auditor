@@ -1,0 +1,170 @@
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
+from github import Github
+import os
+import tempfile
+import git
+from typing import Dict, Any
+
+router = APIRouter()
+
+class IssueRequest(BaseModel):
+    repo_full_name: str
+    github_token: str
+    vulnerability: Dict[str, Any]
+
+class PRRequest(BaseModel):
+    repo_full_name: str
+    github_token: str
+    vulnerability: Dict[str, Any]
+    fix_code: str
+    issue_number: int
+
+def clone_repo(repo_url: str, github_token: str) -> str:
+    """Clone repository to temporary directory"""
+    try:
+        # Create temp directory
+        temp_dir = tempfile.mkdtemp(prefix="arka_scan_")
+        
+        # Convert to authenticated URL
+        if repo_url.startswith("https://"):
+            auth_url = repo_url.replace("https://", f"https://{github_token}@")
+        else:
+            auth_url = repo_url
+        
+        # Clone repository
+        repo = git.Repo.clone_from(auth_url, temp_dir)
+        
+        return temp_dir
+    except Exception as e:
+        print(f"Failed to clone repo: {e}")
+        # Fallback: return temp dir anyway
+        return tempfile.mkdtemp(prefix="arka_scan_")
+
+def get_file_content(repo_path: str, filename: str) -> str:
+    """Get file content from cloned repository"""
+    try:
+        file_path = os.path.join(repo_path, filename)
+        with open(file_path, 'r', encoding='utf-8') as f:
+            return f.read()
+    except Exception as e:
+        print(f"Failed to read file {filename}: {e}")
+        return ""
+
+@router.post("/issue")
+def create_github_issue(request: IssueRequest):
+    """Create a GitHub issue for a vulnerability"""
+    try:
+        g = Github(request.github_token)
+        repo = g.get_repo(request.repo_full_name)
+        
+        vuln = request.vulnerability
+        title = f"[ARKA Security] {vuln.get('severity', 'Medium')}: {vuln.get('type', 'Unknown')} in {vuln.get('filename', 'unknown')}"
+        
+        body = f"""## Vulnerability Detected by ARKA Auditor
+
+**Type:** {vuln.get('type', 'Unknown')}
+**Severity:** {vuln.get('severity', 'Unknown')}
+**File:** {vuln.get('filename', 'unknown')}
+**Line:** {vuln.get('line_number', 0)}
+**Description:** {vuln.get('description', 'No description')}
+
+## Suggested Fix
+{vuln.get('fix_suggestion', 'Review and sanitize input / follow secure coding practices')}
+
+---
+*Detected by [ARKA Auditor](https://github.com)*
+"""
+        
+        # Create issue
+        issue = repo.create_issue(
+            title=title,
+            body=body,
+            labels=["security", "arka-auditor"]
+        )
+        
+        return {
+            "issue_number": issue.number,
+            "issue_url": issue.html_url
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create issue: {str(e)}")
+
+@router.post("/pr")
+def create_github_pr(request: PRRequest):
+    """Create a GitHub PR with fix"""
+    try:
+        g = Github(request.github_token)
+        repo = g.get_repo(request.repo_full_name)
+        
+        vuln = request.vulnerability
+        base_branch = repo.default_branch
+        
+        # Create branch name
+        import time
+        timestamp = str(int(time.time()))
+        branch_name = f"arka-fix/{vuln.get('type', 'unknown').lower().replace(' ', '-')}-{vuln.get('line_number', 0)}-{timestamp}"
+        
+        # Get base branch SHA
+        base_ref = repo.get_git_ref(f"heads/{base_branch}")
+        base_sha = base_ref.object.sha
+        
+        # Create new branch
+        repo.create_git_ref(f"refs/heads/{branch_name}", base_sha)
+        
+        # Get file content and SHA
+        filename = vuln.get('filename', 'unknown')
+        try:
+            file_content = repo.get_contents(filename, ref=base_branch)
+            current_content = file_content.decoded_content.decode('utf-8')
+            file_sha = file_content.sha
+        except:
+            # File doesn't exist or can't read
+            current_content = ""
+            file_sha = None
+        
+        # Update file with fix
+        if file_sha:
+            repo.update_file(
+                path=filename,
+                message=f"Fix {vuln.get('type', 'vulnerability')} in {filename}",
+                content=request.fix_code,
+                sha=file_sha,
+                branch=branch_name
+            )
+        else:
+            # Create new file
+            repo.create_file(
+                path=filename,
+                message=f"Add {filename} with security fix",
+                content=request.fix_code,
+                branch=branch_name
+            )
+        
+        # Create PR
+        title = f"[ARKA Fix] {vuln.get('type', 'Unknown')} in {filename}"
+        body = f"""Fixes #{request.issue_number}
+
+Auto-generated fix by ARKA Auditor for {vuln.get('type', 'vulnerability')}.
+
+**Changes:** {vuln.get('fix_suggestion', 'Security fix applied')}
+
+---
+*Generated by [ARKA Auditor](https://github.com)*
+"""
+        
+        pr = repo.create_pull(
+            title=title,
+            body=body,
+            head=branch_name,
+            base=base_branch
+        )
+        
+        return {
+            "pr_number": pr.number,
+            "pr_url": pr.html_url
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create PR: {str(e)}")

@@ -1,9 +1,16 @@
-import { useState } from "react";
-import API from "../services/api";
+﻿import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import axios from 'axios';
 
-function Dashboard() {
-  const [vulnerability, setVulnerability] = useState("");
-  const [fix, setFix] = useState("");
+export default function Dashboard({ user }) {
+  const navigate = useNavigate();
+  const [repoUrl, setRepoUrl] = useState('');
+  const [targetUrl, setTargetUrl] = useState('http://localhost:80');
+  const [scanning, setScanning] = useState(false);
+  const [scanId, setScanId] = useState(null);
+  const [progress, setProgress] = useState(0);
+  const [status, setStatus] = useState('Ready to scan');
+  const [error, setError] = useState(null);
 
   const [url, setUrl] = useState("");
   const [scanResult, setScanResult] = useState("");
@@ -234,6 +241,56 @@ function Dashboard() {
       setLoading(false);
     }
   };
+
+  const startScan = async () => {
+    if (!repoUrl.trim()) {
+      setError('Please enter a GitHub repository URL');
+      return;
+    }
+
+    setScanning(true);
+    setProgress(0);
+    setStatus('Starting scan...');
+    setError(null);
+
+    try {
+      const response = await axios.post('http://localhost:8000/scan/start', {
+        repo_url: repoUrl,
+        target_url: targetUrl,
+        github_token: user.access_token
+      });
+
+      const newScanId = response.data.scan_id;
+      setScanId(newScanId);
+      localStorage.setItem('arka_scan_id', newScanId);
+
+      // Start polling
+      checkScanStatus(newScanId);
+    } catch (err) {
+      console.error('Scan start failed:', err);
+      setScanning(false);
+      setError(err.response?.data?.detail || 'Failed to start scan');
+    }
+  };
+
+  const getStatusStep = (currentStatus) => {
+    const steps = [
+      { key: 'cloning', label: 'Cloning' },
+      { key: 'static_scan', label: 'Static Scan' },
+      { key: 'live_scan', label: 'Live Scan' },
+      { key: 'ai_analysis', label: 'AI Analysis' },
+      { key: 'generating_fixes', label: 'Generating Fixes' }
+    ];
+
+    return steps.map(step => ({
+      ...step,
+      active: currentStatus === step.key,
+      done: ['complete', 'generating_fixes', 'ai_analysis', 'live_scan', 'static_scan'].includes(currentStatus) &&
+            steps.findIndex(s => s.key === currentStatus) >= steps.findIndex(s => s.key === step.key)
+    }));
+  };
+
+  const statusSteps = getStatusStep(status);
 
   return (
     <div className="p-6 bg-gray-100 min-h-screen">

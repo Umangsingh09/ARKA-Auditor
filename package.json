@@ -1,0 +1,9 @@
+{
+  "name": "arka-auditor",
+  "private": true,
+  "scripts": {
+    "frontend": "cd frontend && npm run dev -- --host 0.0.0.0 --port 5174",
+    "backend": "cd backend && node server.js",
+    "start": "npm run backend & npm run frontend"
+  }
+}
